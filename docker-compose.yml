@@ -1,0 +1,62 @@
+services:
+  nginx:
+    image: nginx:stable-alpine
+    container_name: ${NGINX_CONTAINER_NAME}
+    ports:
+      - "${NGINX_PORT}:80"
+    volumes:
+      - ./:/var/www/html
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - php
+
+  php:
+    build:
+      context: ./php
+    container_name: ${PHP_CONTAINER_NAME}
+    volumes:
+      - ./:/var/www/html
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MAX_BOT_TOKEN: ${MAX_BOT_TOKEN}
+      MAX_CHAT_ID: ${MAX_CHAT_ID}
+      DAHUA_CAMERA_URL: ${DAHUA_CAMERA_URL}
+      DAHUA_CAMERA_USER: ${DAHUA_CAMERA_USER}
+      DAHUA_CAMERA_PASSWORD: ${DAHUA_CAMERA_PASSWORD}
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET}
+      DUPLICATE_TTL_SECONDS: ${DUPLICATE_TTL_SECONDS}
+    depends_on:
+      - mysql
+
+  mysql:
+    image: mysql:8.0
+    container_name: ${MYSQL_CONTAINER_NAME}
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "${MYSQL_PORT}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: ${PHPMYADMIN_CONTAINER_NAME}
+    restart: always
+    ports:
+      - "${PHPMYADMIN_PORT}:80"
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: ${MYSQL_ROOT_USER}
+      PMA_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      - mysql
+
+volumes:
+  mysql_data:

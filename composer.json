@@ -1,0 +1,17 @@
+{
+    "name": "ninja/php",
+    "autoload": {
+        "psr-4": {
+            "App\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "papinomoloko1917",
+            "email": "varivodamax88@gmail.com"
+        }
+    ],
+    "require-dev": {
+        "symfony/var-dumper": "^7.4"
+    }
+}

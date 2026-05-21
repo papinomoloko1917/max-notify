@@ -1,0 +1,8 @@
+.env
+
+storage/logs/*
+storage/snapshots/*
+storage/duplicate-events.json
+
+!storage/logs/.gitkeep
+!storage/snapshots/.gitkeep
