@@ -1,4 +1,4 @@
-![Max Notify](/public/img/icon.png);
+![Max Notify](/public/img/icon.png)
 
 # Max Notify
 
