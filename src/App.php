@@ -6,6 +6,7 @@ namespace App;
 
 use App\Container\Container;
 use App\Webhook\WebhookRequest;
+use DateTimeImmutable;
 
 final class App
 {
@@ -78,8 +79,60 @@ final class App
             return;
         }
 
+        $now = new DateTimeImmutable();
+        $timeWindowFilter = $this->container->timeWindowFilter();
+        $event['time_window'] = $timeWindowFilter->toLogContext($now);
+
+        if (!$timeWindowFilter->isAllowed($now)) {
+            $logger->write($event);
+
+            echo 'OK time window skipped';
+
+            return;
+        }
+
         $snapshotFilename = $request->snapshotFilename();
-        $snapshot = $this->container->camera()->getSnapshot();
+        $cameraSource = $this->container->cameraRegistry()->find($request->source());
+
+        if ($cameraSource === null) {
+            $event['camera_source'] = [
+                'requested' => $request->source(),
+                'selected' => null,
+                'is_unknown' => true,
+            ];
+
+            $logger->write($event);
+
+            echo 'OK unknown source skipped';
+
+            return;
+        }
+
+        $event['camera_source'] = [
+            'requested' => $request->source(),
+            'selected' => $cameraSource->name,
+            'label' => $cameraSource->label,
+            'is_unknown' => false,
+            'chat_ids_count' => count($cameraSource->maxChatIds),
+            'allowed_rules' => $cameraSource->allowedRules,
+        ];
+
+        $event['rule_filter'] = [
+            'enabled' => $cameraSource->allowedRules !== [],
+            'requested_rule' => $request->rule(),
+            'allowed_rules' => $cameraSource->allowedRules,
+            'is_allowed' => $cameraSource->allowsRule($request->rule()),
+        ];
+
+        if (!$cameraSource->allowsRule($request->rule())) {
+            $logger->write($event);
+
+            echo 'OK rule skipped';
+
+            return;
+        }
+
+        $snapshot = $this->container->camera($request->source())->getSnapshot();
 
         $event['snapshot'] = [
             'filename' => $snapshotFilename,
@@ -111,7 +164,13 @@ final class App
             ];
         }
 
-        $event['max'] = $max->sendMessage($request->messageText(), $imageToken)->toLogContext();
+        $messageText = $this->container->eventMessageFormatter()->format($request, $cameraSource->label);
+        $event['message_text'] = $messageText;
+        $event['max'] = [];
+
+        foreach ($cameraSource->maxChatIds as $chatId) {
+            $event['max'][] = $max->sendMessage($messageText, $imageToken, $chatId)->toLogContext();
+        }
 
         $logger->write($event);
 

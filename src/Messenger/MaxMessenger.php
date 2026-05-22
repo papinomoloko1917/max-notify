@@ -10,7 +10,6 @@ final class MaxMessenger
 {
     public function __construct(
         private string $token,
-        private string $chatId,
     ) {
     }
 
@@ -57,7 +56,7 @@ final class MaxMessenger
         );
     }
 
-    public function sendMessage(string $text, ?string $imageToken = null): SendMessageResult
+    public function sendMessage(string $text, ?string $imageToken, string $chatId): SendMessageResult
     {
         $body = [
             'text' => $text,
@@ -74,7 +73,7 @@ final class MaxMessenger
             ];
         }
 
-        $ch = curl_init('https://platform-api.max.ru/messages?chat_id=' . $this->chatId);
+        $ch = curl_init('https://platform-api.max.ru/messages?chat_id=' . urlencode($chatId));
 
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -97,6 +96,7 @@ final class MaxMessenger
             $httpCode,
             $error ?: null,
             is_string($response) ? $response : null,
+            $chatId,
         );
     }
 

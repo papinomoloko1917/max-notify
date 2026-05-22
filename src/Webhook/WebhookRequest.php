@@ -4,8 +4,7 @@ declare(strict_types=1);
 
 namespace App\Webhook;
 
-final class WebhookRequest
-{
+final class WebhookRequest {
     public function __construct(
         private array $server,
         private array $query,
@@ -15,8 +14,7 @@ final class WebhookRequest
     ) {
     }
 
-    public static function fromGlobals(): self
-    {
+    public static function fromGlobals(): self {
         return new self(
             $_SERVER,
             $_GET,
@@ -26,43 +24,36 @@ final class WebhookRequest
         );
     }
 
-    public function eventName(): string
-    {
+    public function eventName(): string {
         return $this->query['event'] ?? 'unknown';
     }
 
-    public function path(): string
-    {
+    public function path(): string {
         $uri = $this->server['REQUEST_URI'] ?? '/';
         $path = parse_url($uri, PHP_URL_PATH);
 
         return is_string($path) ? $path : '/';
     }
 
-    public function isHealthCheck(): bool
-    {
+    public function isHealthCheck(): bool {
         return $this->path() === '/health';
     }
 
-    public function secret(): string
-    {
+    public function secret(): string {
         return $this->query['secret'] ?? '';
     }
 
-    public function source(): string
-    {
+    public function source(): string {
         return $this->sanitizeIdentifier(
             $this->query['source'] ?? $this->query['camera'] ?? 'default',
         );
     }
 
-    public function rule(): string
-    {
+    public function rule(): string {
         return $this->sanitizeIdentifier($this->query['rule'] ?? 'unknown');
     }
 
-    public function duplicateKey(): string
-    {
+    public function duplicateKey(): string {
         return implode(':', [
             $this->eventName(),
             $this->source(),
@@ -70,20 +61,11 @@ final class WebhookRequest
         ]);
     }
 
-    public function snapshotFilename(): string
-    {
+    public function snapshotFilename(): string {
         return date('Ymd_His') . '_' . $this->source() . '_' . $this->rule() . '.jpg';
     }
 
-    public function messageText(): string
-    {
-        return 'Dahua event: ' . $this->eventName()
-            . ', source: ' . $this->source()
-            . ', rule: ' . $this->rule();
-    }
-
-    public function toLogContext(): array
-    {
+    public function toLogContext(): array {
         return [
             'time' => date('Y-m-d H:i:s'),
             'method' => $this->server['REQUEST_METHOD'] ?? null,
@@ -100,13 +82,11 @@ final class WebhookRequest
         ];
     }
 
-    private function sanitizeIdentifier(string $value): string
-    {
+    private function sanitizeIdentifier(string $value): string {
         return preg_replace('/[^a-zA-Z0-9_-]/', '_', $value);
     }
 
-    private function safeQuery(): array
-    {
+    private function safeQuery(): array {
         $query = $this->query;
 
         if (isset($query['secret'])) {
@@ -116,8 +96,7 @@ final class WebhookRequest
         return $query;
     }
 
-    private function safeUri(): ?string
-    {
+    private function safeUri(): ?string {
         $uri = $this->server['REQUEST_URI'] ?? null;
 
         if (!is_string($uri)) {
@@ -145,8 +124,7 @@ final class WebhookRequest
         return $path . '?' . http_build_query($query);
     }
 
-    private function safeHeaders(): array
-    {
+    private function safeHeaders(): array {
         $safeHeaders = [];
 
         foreach ($this->headers as $name => $value) {

@@ -12,6 +12,8 @@ Dahua/NVR
   -> WebhookRequest
   -> AppConfig
   -> DuplicateGuard
+  -> TimeWindowFilter
+  -> CameraRegistry
   -> DahuaCamera
   -> MaxMessenger
   -> WebhookLogger
@@ -22,9 +24,10 @@ Dahua/NVR
 1. Камера или регистратор вызывает webhook.
 2. Приложение проверяет, что запрос разрешен.
 3. Приложение проверяет, не является ли событие дублем.
-4. Приложение получает snapshot с камеры.
-5. Приложение отправляет snapshot в MAX.
-6. Приложение пишет диагностический лог.
+4. Приложение проверяет, входит ли событие в разрешенное время отправки.
+5. Приложение получает snapshot с камеры.
+6. Приложение отправляет snapshot в MAX.
+7. Приложение пишет диагностический лог.
 
 ## Entry point
 
@@ -67,15 +70,18 @@ src/Container/Container.php
 - `AppConfig`
 - `WebhookLogger`
 - `DuplicateGuard`
+- `CameraRegistry`
+- `TimeWindowFilter`
 - `DahuaCamera`
 - `MaxMessenger`
+- `EventMessageFormatter`
 
 Пример:
 
 ```php
 $logger = $this->container->logger();
 $config = $this->container->config();
-$camera = $this->container->camera();
+$camera = $this->container->camera($request->source());
 $max = $this->container->maxMessenger();
 ```
 
@@ -132,15 +138,19 @@ $event = $request->toLogContext();
 
 8. Проверить дубль события.
 
-9. Получить snapshot.
+9. Проверить временное окно отправки.
 
-10. Загрузить snapshot в MAX.
+10. Получить snapshot.
 
-11. Отправить сообщение в MAX.
+11. Загрузить snapshot в MAX.
 
-12. Записать лог.
+12. Отправить сообщение в MAX.
 
-13. Вернуть `OK`.
+13. Записать лог.
+
+14. Вернуть `OK`.
+
+Текст сообщения для MAX формируется через `EventMessageFormatter`. Он делает короткое клиентское сообщение, а технические значения `event`, `source` и `rule` остаются в диагностическом логе.
 
 ## Health check
 
@@ -182,6 +192,8 @@ src/Webhook/WebhookRequest.php
 - headers
 - raw body
 
+Сам `WebhookRequest` не формирует текст сообщения для MAX. Он только предоставляет технические значения для других классов.
+
 Основные методы:
 
 ```php
@@ -191,9 +203,37 @@ rule()
 secret()
 duplicateKey()
 snapshotFilename()
-messageText()
 toLogContext()
 ```
+
+## EventMessageFormatter
+
+Файл:
+
+```text
+src/Webhook/EventMessageFormatter.php
+```
+
+`EventMessageFormatter` формирует короткое русское сообщение для MAX.
+
+Сообщение рассчитано на обычного клиента: в нем нет технических полей `event`, `source`, `rule`. Эти детали остаются в диагностическом логе.
+
+Пример:
+
+```text
+🚨 Пересечение линии
+📍 Ворота
+🕒 22.05 08:43 МСК
+```
+
+Известные значения переводятся явно:
+
+- `ivs` -> `Событие аналитики`
+- `line_crossing` -> `Пересечение линии`
+- `intrusion` -> `Вторжение в область`
+- `motion` -> `Движение`
+
+Неизвестные значения приводятся к более читаемому виду: `_` и `-` заменяются пробелами.
 
 ### source
 
@@ -280,12 +320,32 @@ src/Config/AppConfig.php
 
 ```env
 MAX_BOT_TOKEN
-MAX_CHAT_ID
-DAHUA_CAMERA_URL
-DAHUA_CAMERA_USER
-DAHUA_CAMERA_PASSWORD
 WEBHOOK_SECRET
 DUPLICATE_TTL_SECONDS
+NOTIFY_ALLOWED_FROM
+NOTIFY_ALLOWED_TO
+```
+
+Настройки нескольких источников читаются по списку `CAMERA_SOURCES`.
+
+Например `CAMERA_SOURCES=gate,yard` заставит приложение искать:
+
+```env
+CAMERA_GATE_LABEL
+CAMERA_GATE_URL
+CAMERA_GATE_USER
+CAMERA_GATE_PASSWORD
+CAMERA_GATE_MAX_CHAT_ID
+CAMERA_GATE_MAX_CHAT_IDS
+CAMERA_GATE_ALLOWED_RULES
+
+CAMERA_YARD_LABEL
+CAMERA_YARD_URL
+CAMERA_YARD_USER
+CAMERA_YARD_PASSWORD
+CAMERA_YARD_MAX_CHAT_ID
+CAMERA_YARD_MAX_CHAT_IDS
+CAMERA_YARD_ALLOWED_RULES
 ```
 
 Метод:
@@ -301,6 +361,8 @@ missingValues()
 ```text
 5
 ```
+
+`NOTIFY_ALLOWED_FROM` и `NOTIFY_ALLOWED_TO` задают разрешенное время отправки уведомлений в формате `HH:MM`. Если обе переменные пустые, временной фильтр выключен.
 
 ## Проверка WEBHOOK_SECRET
 
@@ -376,6 +438,103 @@ OK duplicate skipped
 
 Почему ответ все равно `200 OK`: камере не нужно повторять отправку события. Мы приняли запрос, но сознательно не обработали его повторно.
 
+## TimeWindowFilter
+
+Файл:
+
+```text
+src/Event/TimeWindowFilter.php
+```
+
+`TimeWindowFilter` проверяет, можно ли сейчас отправлять уведомление в MAX.
+
+Настройки:
+
+```env
+NOTIFY_ALLOWED_FROM=08:00
+NOTIFY_ALLOWED_TO=23:00
+```
+
+Алгоритм:
+
+1. Если обе переменные пустые, фильтр выключен.
+2. Если время задано некорректно, событие не отправляется, а причина видна в логе.
+3. Если текущее время входит в окно, приложение продолжает поток: snapshot и MAX.
+4. Если текущее время вне окна, приложение пишет лог и возвращает:
+
+```text
+OK time window skipped
+```
+
+Окно может пересекать полночь:
+
+```env
+NOTIFY_ALLOWED_FROM=22:00
+NOTIFY_ALLOWED_TO=07:00
+```
+
+Временной фильтр стоит после защиты от дублей и до получения snapshot. Поэтому вне разрешенного времени камера и MAX не вызываются.
+
+## CameraRegistry
+
+Файлы:
+
+```text
+src/Camera/CameraRegistry.php
+src/Camera/CameraSource.php
+```
+
+`CameraRegistry` выбирает настройки камеры по `source` из webhook.
+
+Пример:
+
+```text
+/webhook?secret=...&event=ivs&source=gate&rule=line_crossing
+```
+
+`source=gate` будет искать настройки:
+
+```env
+CAMERA_SOURCES=gate
+CAMERA_GATE_LABEL=Ворота
+CAMERA_GATE_URL=http://10.10.0.181/cgi-bin/snapshot.cgi?channel=1
+CAMERA_GATE_USER=server
+CAMERA_GATE_PASSWORD=change_me
+CAMERA_GATE_MAX_CHAT_IDS=111111,333333
+CAMERA_GATE_ALLOWED_RULES=vehicle_detection
+```
+
+`source` остается техническим ключом латиницей, а `CAMERA_<SOURCE>_LABEL` задает человекочитаемое русское название для MAX.
+
+`CAMERA_<SOURCE>_MAX_CHAT_IDS` задает несколько получателей в MAX для конкретной камеры через запятую. Если значение пустое, используется одиночный `CAMERA_<SOURCE>_MAX_CHAT_ID`.
+
+Глобального fallback-получателя нет. Если у камеры не задан ни `CAMERA_<SOURCE>_MAX_CHAT_ID`, ни `CAMERA_<SOURCE>_MAX_CHAT_IDS`, источник не попадает в `CameraRegistry`.
+
+`CAMERA_<SOURCE>_ALLOWED_RULES` задает список разрешенных правил через запятую. Если список пустой, разрешены все правила.
+
+Примеры:
+
+```env
+CAMERA_GATE_ALLOWED_RULES=vehicle_detection
+CAMERA_YARD_ALLOWED_RULES=human_detection,vehicle_detection
+```
+
+Если пришел `rule`, которого нет в списке, приложение пишет событие в лог и возвращает:
+
+```text
+OK rule skipped
+```
+
+Snapshot и MAX при этом не вызываются.
+
+Если источник не найден, приложение пишет это в лог и возвращает:
+
+```text
+OK unknown source skipped
+```
+
+Snapshot и MAX при этом не вызываются.
+
 ## DahuaCamera
 
 Файлы:
@@ -385,10 +544,12 @@ src/Camera/DahuaCamera.php
 src/Camera/SnapshotResult.php
 ```
 
-`DahuaCamera` получает snapshot по URL из `.env`:
+`DahuaCamera` получает snapshot по URL, который передал `CameraRegistry`.
+
+URL берется из настройки конкретного источника:
 
 ```env
-DAHUA_CAMERA_URL=http://camera-ip/cgi-bin/snapshot.cgi?channel=1
+CAMERA_GATE_URL=http://camera-ip/cgi-bin/snapshot.cgi?channel=1
 ```
 
 Используется Digest-авторизация:
@@ -455,6 +616,18 @@ POST https://platform-api.max.ru/messages?chat_id=...
 
 Это позволяет не сохранять snapshot на сервере.
 
+`chat_id` выбирается так:
+
+1. Если у выбранной камеры задан `CAMERA_<SOURCE>_MAX_CHAT_IDS`, сообщение отправляется всем из списка.
+2. Если список пустой, но задан `CAMERA_<SOURCE>_MAX_CHAT_ID`, сообщение отправляется туда.
+3. Если получатели камеры не заданы, камера не регистрируется и событие с таким `source` будет пропущено как неизвестный источник.
+
+Как получить `chat_id` клиента, описано в:
+
+```text
+docs/getChatIdMax.md
+```
+
 ## WebhookLogger
 
 Файл:
@@ -468,6 +641,8 @@ src/Logger/WebhookLogger.php
 ```text
 storage/logs/webhook.log
 ```
+
+Лог хранит только последние 40 записей, чтобы файл не рос бесконечно.
 
 Формат - JSON-блоки, разделенные строкой:
 
@@ -511,6 +686,7 @@ storage/logs/webhook.log
   "max": {
     "text_http_code": 200,
     "text_error": null,
+    "chat_id": "111111",
     "message_id": "mid....",
     "has_attachment": true,
     "response_is_json": true
@@ -580,7 +756,17 @@ OK duplicate skipped
 
 MAX все равно может получить текстовое сообщение без изображения.
 
-### 5. Успешный сценарий
+### 5. Вне временного окна
+
+Если настроено окно отправки и событие пришло вне него:
+
+```text
+OK time window skipped
+```
+
+Snapshot и MAX не вызываются.
+
+### 6. Успешный сценарий
 
 ```text
 GET /webhook?secret=...&event=ivs&source=gate&rule=line_crossing
@@ -590,11 +776,13 @@ GET /webhook?secret=...&event=ivs&source=gate&rule=line_crossing
 
 1. Проверен secret.
 2. Проверен дубль.
-3. Получен snapshot.
-4. Snapshot загружен в MAX.
-5. Сообщение с фото отправлено.
-6. Лог записан.
-7. Ответ:
+3. Проверено временное окно.
+4. Выбрана камера и список MAX chat_id по `source`.
+5. Получен snapshot.
+6. Snapshot загружен в MAX.
+7. Короткое сообщение с фото отправлено.
+8. Лог записан.
+9. Ответ:
 
 ```text
 OK
@@ -602,32 +790,25 @@ OK
 
 ## Как расширять под несколько камер
 
-Текущая версия уже использует `source`, но snapshot URL пока один.
+Текущая версия уже использует `source` и умеет выбирать камеру через `CameraRegistry`.
 
-Следующий шаг:
-
-```text
-src/Camera/CameraSource.php
-src/Camera/CameraRegistry.php
-```
-
-`CameraRegistry` должен будет по `source` или `channel` выбирать настройки камеры.
-
-Пример будущей логики:
+Пример логики:
 
 ```php
-$source = $cameraRegistry->find($request->source());
-$camera = new DahuaCamera($source->snapshotUrl, $source->user, $source->password);
+$cameraSource = $cameraRegistry->find($request->source());
+$camera = new DahuaCamera($cameraSource->snapshotUrl, $cameraSource->user, $cameraSource->password);
 ```
 
-Для NVR можно будет использовать `channel`:
+Для NVR можно завести source на каждый канал:
 
 ```text
-/webhook?secret=...&event=ivs&source=nvr&channel=3&rule=line_crossing
+/webhook?secret=...&event=ivs&source=nvr_ch3&rule=line_crossing
 ```
 
-И строить snapshot URL:
+И указать:
 
-```text
-http://nvr-ip/cgi-bin/snapshot.cgi?channel=3
+```env
+CAMERA_SOURCES=nvr_ch1,nvr_ch2,nvr_ch3
+CAMERA_NVR_CH3_URL=http://nvr-ip/cgi-bin/snapshot.cgi?channel=3
+CAMERA_NVR_CH3_MAX_CHAT_IDS=111111,222222
 ```

@@ -5,18 +5,24 @@ declare(strict_types=1);
 namespace App\Container;
 
 use App\Camera\DahuaCamera;
+use App\Camera\CameraRegistry;
+use App\Camera\CameraSource;
 use App\Config\AppConfig;
 use App\Event\DuplicateGuard;
+use App\Event\TimeWindowFilter;
 use App\Logger\WebhookLogger;
 use App\Messenger\MaxMessenger;
+use App\Webhook\EventMessageFormatter;
 
 final class Container
 {
     private ?AppConfig $config = null;
     private ?WebhookLogger $logger = null;
     private ?DuplicateGuard $duplicateGuard = null;
-    private ?DahuaCamera $camera = null;
+    private ?TimeWindowFilter $timeWindowFilter = null;
+    private ?CameraRegistry $cameraRegistry = null;
     private ?MaxMessenger $maxMessenger = null;
+    private ?EventMessageFormatter $eventMessageFormatter = null;
 
     public function __construct(
         private string $appPath,
@@ -41,15 +47,52 @@ final class Container
         );
     }
 
-    public function camera(): DahuaCamera
+    public function timeWindowFilter(): TimeWindowFilter
     {
         $config = $this->config();
 
-        return $this->camera ??= new DahuaCamera(
-            $config->cameraUrl,
-            $config->cameraUser,
-            $config->cameraPassword,
+        return $this->timeWindowFilter ??= new TimeWindowFilter(
+            $config->notifyAllowedFrom,
+            $config->notifyAllowedTo,
         );
+    }
+
+    public function camera(string $source): DahuaCamera
+    {
+        $cameraSource = $this->cameraRegistry()->find($source);
+
+        if ($cameraSource === null) {
+            throw new \RuntimeException('Camera source was not found: ' . $source);
+        }
+
+        return new DahuaCamera(
+            $cameraSource->snapshotUrl,
+            $cameraSource->user,
+            $cameraSource->password,
+        );
+    }
+
+    public function cameraRegistry(): CameraRegistry
+    {
+        if ($this->cameraRegistry !== null) {
+            return $this->cameraRegistry;
+        }
+
+        $sources = [];
+
+        foreach ($this->config()->cameraSources() as $name => $sourceConfig) {
+            $sources[$name] = new CameraSource(
+                $name,
+                $sourceConfig['label'],
+                $sourceConfig['url'],
+                $sourceConfig['user'],
+                $sourceConfig['password'],
+                $sourceConfig['max_chat_ids'],
+                $sourceConfig['allowed_rules'],
+            );
+        }
+
+        return $this->cameraRegistry = new CameraRegistry($sources);
     }
 
     public function maxMessenger(): MaxMessenger
@@ -58,7 +101,11 @@ final class Container
 
         return $this->maxMessenger ??= new MaxMessenger(
             $config->maxToken,
-            $config->maxChatId,
         );
+    }
+
+    public function eventMessageFormatter(): EventMessageFormatter
+    {
+        return $this->eventMessageFormatter ??= new EventMessageFormatter();
     }
 }

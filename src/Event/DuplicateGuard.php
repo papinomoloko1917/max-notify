@@ -15,28 +15,37 @@ final class DuplicateGuard
     public function isDuplicate(string $key): bool
     {
         $now = time();
-        $state = $this->readState();
-        $lastSeenAt = $state[$key] ?? null;
+        $handle = fopen($this->stateFile, 'c+');
 
-        $state[$key] = $now;
-        $this->writeState($state, $now);
-
-        return is_int($lastSeenAt) && ($now - $lastSeenAt) < $this->ttlSeconds;
-    }
-
-    private function readState(): array
-    {
-        if (!is_file($this->stateFile)) {
-            return [];
+        if ($handle === false) {
+            return false;
         }
 
-        $json = file_get_contents($this->stateFile);
-        $state = json_decode($json ?: '', true);
+        flock($handle, LOCK_EX);
 
-        return is_array($state) ? $state : [];
+        rewind($handle);
+
+        $json = stream_get_contents($handle);
+        $state = json_decode($json ?: '', true);
+        $state = is_array($state) ? $state : [];
+
+        $lastSeenAt = $state[$key] ?? null;
+        $isDuplicate = is_int($lastSeenAt) && ($now - $lastSeenAt) < $this->ttlSeconds;
+
+        $state[$key] = $now;
+        $freshState = $this->freshState($state, $now);
+
+        ftruncate($handle, 0);
+        rewind($handle);
+        fwrite($handle, json_encode($freshState, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+        fflush($handle);
+        flock($handle, LOCK_UN);
+        fclose($handle);
+
+        return $isDuplicate;
     }
 
-    private function writeState(array $state, int $now): void
+    private function freshState(array $state, int $now): array
     {
         $freshState = [];
 
@@ -46,9 +55,6 @@ final class DuplicateGuard
             }
         }
 
-        file_put_contents(
-            $this->stateFile,
-            json_encode($freshState, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)
-        );
+        return $freshState;
     }
 }

@@ -14,6 +14,8 @@ services:
     build:
       context: ./php
     container_name: ${PHP_CONTAINER_NAME}
+    env_file:
+      - .env
     volumes:
       - ./:/var/www/html
     environment:
@@ -21,10 +23,6 @@ services:
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MAX_BOT_TOKEN: ${MAX_BOT_TOKEN}
-      MAX_CHAT_ID: ${MAX_CHAT_ID}
-      DAHUA_CAMERA_URL: ${DAHUA_CAMERA_URL}
-      DAHUA_CAMERA_USER: ${DAHUA_CAMERA_USER}
-      DAHUA_CAMERA_PASSWORD: ${DAHUA_CAMERA_PASSWORD}
       WEBHOOK_SECRET: ${WEBHOOK_SECRET}
       DUPLICATE_TTL_SECONDS: ${DUPLICATE_TTL_SECONDS}
     depends_on:

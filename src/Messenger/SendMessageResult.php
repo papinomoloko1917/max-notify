@@ -10,6 +10,7 @@ final class SendMessageResult
         public readonly int $httpCode,
         public readonly ?string $error,
         public readonly ?string $response,
+        public readonly string $chatId,
     ) {
     }
 
@@ -22,6 +23,7 @@ final class SendMessageResult
         return [
             'text_http_code' => $this->httpCode,
             'text_error' => $this->error,
+            'chat_id' => $this->chatId,
             'message_id' => is_array($body) ? ($body['mid'] ?? null) : null,
             'has_attachment' => is_array($body) && !empty($body['attachments']),
             'response_is_json' => is_array($data),
