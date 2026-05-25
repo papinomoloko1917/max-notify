@@ -140,15 +140,15 @@ true
 Nginx/PHP-FPM обычно работают от пользователя `www-data`.
 
 ```bash
-sudo chown -R "$USER":www-data /var/www/max-notify
-sudo chown -R www-data:www-data /var/www/max-notify/storage
-sudo chmod -R 775 /var/www/max-notify/storage
+sudo chown -R "$USER":www-data /home/ninjamax1917/sites/max-notify
+sudo chown -R www-data:www-data /home/ninjamax1917/sites/max-notify/storage
+sudo chmod -R 775 /home/ninjamax1917/sites/max-notify/storage
 ```
 
 Проверить:
 
 ```bash
-ls -la /var/www/max-notify/storage
+ls -la /home/ninjamax1917/sites/max-notify/storage
 ```
 
 ## 6. Создать MySQL-базу
@@ -163,7 +163,7 @@ sudo mysql
 
 ```sql
 CREATE DATABASE max_notify CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'max_notify'@'localhost' IDENTIFIED BY 'strong_db_password';
+CREATE USER 'max_notify'@'localhost' IDENTIFIED BY 'password';
 GRANT ALL PRIVILEGES ON max_notify.* TO 'max_notify'@'localhost';
 FLUSH PRIVILEGES;
 EXIT;
@@ -172,7 +172,7 @@ EXIT;
 Если приложение будет подключаться к `127.0.0.1`, лучше создать пользователя и для этого host:
 
 ```sql
-CREATE USER 'max_notify'@'127.0.0.1' IDENTIFIED BY 'strong_db_password';
+CREATE USER 'max_notify'@'127.0.0.1' IDENTIFIED BY 'password';
 GRANT ALL PRIVILEGES ON max_notify.* TO 'max_notify'@'127.0.0.1';
 FLUSH PRIVILEGES;
 ```
@@ -182,7 +182,7 @@ FLUSH PRIVILEGES;
 ## 7. Настроить `.env`
 
 ```bash
-cd /var/www/max-notify
+cd /sites/var/www/max-notify
 cp .env.example .env
 nano .env
 ```
@@ -204,6 +204,8 @@ NOTIFY_ALLOWED_TO=
 ```
 
 `MAX_BOT_TOKEN` и `WEBHOOK_SECRET` больше не нужно хранить в `.env`. Они задаются в `/profile` и сохраняются в MySQL.
+
+Приложение само читает файл `.env` при входе через `public/index.php`; отдельный пакет `phpdotenv` для production не нужен.
 
 Создать хеш пароля для входа в `/profile`:
 
@@ -249,7 +251,7 @@ server {
     listen 8081;
     server_name _;
 
-    root /var/www/max-notify/public;
+    root /sites/var/www/max-notify/public;
     index index.php;
 
     access_log /var/log/nginx/max-notify.access.log;
@@ -486,8 +488,8 @@ curl -s "https://platform-api.max.ru/updates?timeout=10&limit=10&types=message_c
 Лог приложения:
 
 ```bash
-tail -n 120 /var/www/max-notify/storage/logs/webhook.log
-tail -f /var/www/max-notify/storage/logs/webhook.log
+tail -n 120 /sites/var/www/max-notify/storage/logs/webhook.log
+tail -f /sites/var/www/max-notify/storage/logs/webhook.log
 ```
 
 Логи Nginx:
@@ -523,7 +525,7 @@ systemctl list-units 'php*-fpm.service'
 ## 17. Обновление проекта
 
 ```bash
-cd /var/www/max-notify
+cd /sites/var/www/max-notify
 git pull
 composer install --no-dev --optimize-autoloader
 find src public resources -name '*.php' -print -exec php -l {} \;
