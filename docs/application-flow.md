@@ -68,6 +68,7 @@ src/Container/Container.php
 Он отвечает за создание и переиспользование основных объектов:
 
 - `AppConfig`
+- `Database`
 - `WebhookLogger`
 - `DuplicateGuard`
 - `CameraRegistry`
@@ -75,6 +76,21 @@ src/Container/Container.php
 - `DahuaCamera`
 - `MaxMessenger`
 - `EventMessageFormatter`
+- `ProfileRepository`
+- `ProfileController`
+
+`ProfileController` подключает PHP-представления из:
+
+```text
+resources/views/profile
+```
+
+Bootstrap подключается локально:
+
+```text
+public/assets/vendor/bootstrap/css/bootstrap.min.css
+public/assets/vendor/bootstrap/js/bootstrap.bundle.min.js
+```
 
 Пример:
 
@@ -83,6 +99,7 @@ $logger = $this->container->logger();
 $config = $this->container->config();
 $camera = $this->container->camera($request->source());
 $max = $this->container->maxMessenger();
+$profile = $this->container->profileController();
 ```
 
 Зачем нужен контейнер:
@@ -319,33 +336,27 @@ src/Config/AppConfig.php
 Основные переменные:
 
 ```env
-MAX_BOT_TOKEN
-WEBHOOK_SECRET
+MYSQL_DATABASE
+MYSQL_USER
+MYSQL_PASSWORD
+PROFILE_USERNAME
+PROFILE_PASSWORD_HASH
 DUPLICATE_TTL_SECONDS
 NOTIFY_ALLOWED_FROM
 NOTIFY_ALLOWED_TO
 ```
 
-Настройки нескольких источников читаются по списку `CAMERA_SOURCES`.
+`MAX_BOT_TOKEN` и `WEBHOOK_SECRET` не являются обязательными переменными `.env`: они задаются в `/profile` и хранятся в MySQL.
 
-Например `CAMERA_SOURCES=gate,yard` заставит приложение искать:
+Камеры, клиенты MAX, связи камер с клиентами и настройки сервиса читаются из MySQL.
 
-```env
-CAMERA_GATE_LABEL
-CAMERA_GATE_URL
-CAMERA_GATE_USER
-CAMERA_GATE_PASSWORD
-CAMERA_GATE_MAX_CHAT_ID
-CAMERA_GATE_MAX_CHAT_IDS
-CAMERA_GATE_ALLOWED_RULES
+Таблицы:
 
-CAMERA_YARD_LABEL
-CAMERA_YARD_URL
-CAMERA_YARD_USER
-CAMERA_YARD_PASSWORD
-CAMERA_YARD_MAX_CHAT_ID
-CAMERA_YARD_MAX_CHAT_IDS
-CAMERA_YARD_ALLOWED_RULES
+```text
+profile_settings
+clients
+cameras
+camera_clients
 ```
 
 Метод:
@@ -378,10 +389,10 @@ secret
 /webhook?secret=...&event=ivs&source=gate&rule=line_crossing
 ```
 
-Приложение сравнивает секрет из запроса с `WEBHOOK_SECRET` из `.env`:
+Приложение сравнивает секрет из запроса с `webhook_secret` из таблицы `profile_settings`:
 
 ```php
-hash_equals($config->webhookSecret, $request->secret())
+hash_equals($settings->webhookSecret, $request->secret())
 ```
 
 Если секрет неверный:
@@ -494,29 +505,43 @@ src/Camera/CameraSource.php
 
 `source=gate` будет искать настройки:
 
-```env
-CAMERA_SOURCES=gate
-CAMERA_GATE_LABEL=Ворота
-CAMERA_GATE_URL=http://10.10.0.181/cgi-bin/snapshot.cgi?channel=1
-CAMERA_GATE_USER=server
-CAMERA_GATE_PASSWORD=change_me
-CAMERA_GATE_MAX_CHAT_IDS=111111,333333
-CAMERA_GATE_ALLOWED_RULES=vehicle_detection
+```text
+cameras.source = gate
 ```
 
-`source` остается техническим ключом латиницей, а `CAMERA_<SOURCE>_LABEL` задает человекочитаемое русское название для MAX.
+`source` остается техническим ключом латиницей. В личном кабинете его можно не вводить руками: форма сформирует `source` из названия камеры, например `Прихожая` -> `prihozhaya`.
 
-`CAMERA_<SOURCE>_MAX_CHAT_IDS` задает несколько получателей в MAX для конкретной камеры через запятую. Если значение пустое, используется одиночный `CAMERA_<SOURCE>_MAX_CHAT_ID`.
+Snapshot URL тоже можно не собирать вручную. В `/profile` достаточно указать IP/host камеры и номер канала, а форма подставит URL вида:
 
-Глобального fallback-получателя нет. Если у камеры не задан ни `CAMERA_<SOURCE>_MAX_CHAT_ID`, ни `CAMERA_<SOURCE>_MAX_CHAT_IDS`, источник не попадает в `CameraRegistry`.
+```text
+http://camera-ip/cgi-bin/snapshot.cgi?channel=1
+```
 
-`CAMERA_<SOURCE>_ALLOWED_RULES` задает список разрешенных правил через запятую. Если список пустой, разрешены все правила.
+Сервер повторяет эту сборку при сохранении, поэтому данные корректно обработаются даже без JavaScript. Название камеры, snapshot URL, доступы Dahua, разрешенные `rule` и получатели MAX берутся из MySQL.
 
-Примеры:
+Кабинет также формирует готовую webhook-команду для Dahua:
 
-```env
-CAMERA_GATE_ALLOWED_RULES=vehicle_detection
-CAMERA_YARD_ALLOWED_RULES=human_detection,vehicle_detection
+```text
+/w?s=...&e=ivs&c=prihozhaya&r=line_crossing
+```
+
+Это короткий формат для камер, где поле команды ограничено по длине. Длинный формат `/webhook?secret=...&event=ivs&source=prihozhaya&rule=line_crossing` также поддерживается для совместимости.
+
+Если у камеры выбраны разрешенные `rule`, команды строятся только для этих правил. Если список правил пустой, приложение принимает любые правила, а кабинет показывает команды для всех известных типов событий.
+
+Получатели MAX задаются через привязку камеры к клиентам:
+
+```text
+camera_clients.camera_id
+camera_clients.client_id
+```
+
+Глобального fallback-получателя нет. Если у камеры нет привязанных клиентов, она не попадает в `CameraRegistry`.
+
+`cameras.allowed_rules` задает список разрешенных правил через запятую. Если список пустой, разрешены все правила.
+
+```text
+vehicle_detection,human_detection
 ```
 
 Если пришел `rule`, которого нет в списке, приложение пишет событие в лог и возвращает:
@@ -546,10 +571,10 @@ src/Camera/SnapshotResult.php
 
 `DahuaCamera` получает snapshot по URL, который передал `CameraRegistry`.
 
-URL берется из настройки конкретного источника:
+URL берется из поля `snapshot_url` конкретной камеры в MySQL:
 
-```env
-CAMERA_GATE_URL=http://camera-ip/cgi-bin/snapshot.cgi?channel=1
+```text
+cameras.snapshot_url
 ```
 
 Используется Digest-авторизация:
@@ -618,9 +643,9 @@ POST https://platform-api.max.ru/messages?chat_id=...
 
 `chat_id` выбирается так:
 
-1. Если у выбранной камеры задан `CAMERA_<SOURCE>_MAX_CHAT_IDS`, сообщение отправляется всем из списка.
-2. Если список пустой, но задан `CAMERA_<SOURCE>_MAX_CHAT_ID`, сообщение отправляется туда.
-3. Если получатели камеры не заданы, камера не регистрируется и событие с таким `source` будет пропущено как неизвестный источник.
+1. `ProfileRepository` находит клиентов, привязанных к камере через `camera_clients`.
+2. Для каждого найденного `clients.max_chat_id` приложение отправляет отдельное сообщение.
+3. Если у камеры нет клиентов, она не попадает в `CameraRegistry`, и событие с таким `source` будет пропущено как неизвестный источник.
 
 Как получить `chat_id` клиента, описано в:
 
@@ -799,16 +824,15 @@ $cameraSource = $cameraRegistry->find($request->source());
 $camera = new DahuaCamera($cameraSource->snapshotUrl, $cameraSource->user, $cameraSource->password);
 ```
 
-Для NVR можно завести source на каждый канал:
+Для NVR можно завести source на каждый канал через `/profile`:
 
 ```text
 /webhook?secret=...&event=ivs&source=nvr_ch3&rule=line_crossing
 ```
 
-И указать:
+И сохранить в MySQL:
 
-```env
-CAMERA_SOURCES=nvr_ch1,nvr_ch2,nvr_ch3
-CAMERA_NVR_CH3_URL=http://nvr-ip/cgi-bin/snapshot.cgi?channel=3
-CAMERA_NVR_CH3_MAX_CHAT_IDS=111111,222222
+```text
+source: nvr_ch3
+snapshot_url: http://nvr-ip/cgi-bin/snapshot.cgi?channel=3
 ```

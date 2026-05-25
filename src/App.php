@@ -31,6 +31,12 @@ final class App
             return;
         }
 
+        if (str_starts_with($request->path(), '/profile')) {
+            $this->container->profileController()->handle();
+
+            return;
+        }
+
         $missingConfig = $config->missingValues();
 
         if ($missingConfig !== []) {
@@ -47,10 +53,27 @@ final class App
             return;
         }
 
-        if (!hash_equals($config->webhookSecret, $request->secret())) {
+        $settings = $this->container->profileRepository()->settings();
+        $missingSettings = $settings->missingValues();
+
+        if ($missingSettings !== []) {
+            $event['error'] = [
+                'message' => 'Missing profile settings',
+                'vars' => $missingSettings,
+            ];
+
+            $logger->write($event);
+
+            http_response_code(500);
+            echo 'Missing profile settings';
+
+            return;
+        }
+
+        if (!hash_equals($settings->webhookSecret, $request->secret())) {
             $event['error'] = [
                 'message' => 'Invalid webhook secret',
-                'expected_length' => strlen($config->webhookSecret),
+                'expected_length' => strlen($settings->webhookSecret),
                 'received_length' => strlen($request->secret()),
                 'secret_was_provided' => $request->secret() !== '',
             ];

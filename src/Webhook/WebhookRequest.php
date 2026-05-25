@@ -25,7 +25,7 @@ final class WebhookRequest {
     }
 
     public function eventName(): string {
-        return $this->query['event'] ?? 'unknown';
+        return $this->query['event'] ?? $this->query['e'] ?? 'unknown';
     }
 
     public function path(): string {
@@ -40,17 +40,17 @@ final class WebhookRequest {
     }
 
     public function secret(): string {
-        return $this->query['secret'] ?? '';
+        return $this->query['secret'] ?? $this->query['s'] ?? '';
     }
 
     public function source(): string {
-        return $this->sanitizeIdentifier(
-            $this->query['source'] ?? $this->query['camera'] ?? 'default',
-        );
+        return strtolower($this->sanitizeIdentifier(
+            $this->query['source'] ?? $this->query['camera'] ?? $this->query['src'] ?? $this->query['c'] ?? 'default',
+        ));
     }
 
     public function rule(): string {
-        return $this->sanitizeIdentifier($this->query['rule'] ?? 'unknown');
+        return $this->sanitizeIdentifier($this->query['rule'] ?? $this->query['r'] ?? 'unknown');
     }
 
     public function duplicateKey(): string {
@@ -93,6 +93,10 @@ final class WebhookRequest {
             $query['secret'] = '[redacted]';
         }
 
+        if (isset($query['s'])) {
+            $query['s'] = '[redacted]';
+        }
+
         return $query;
     }
 
@@ -119,6 +123,10 @@ final class WebhookRequest {
 
         if (isset($query['secret'])) {
             $query['secret'] = '[redacted]';
+        }
+
+        if (isset($query['s'])) {
+            $query['s'] = '[redacted]';
         }
 
         return $path . '?' . http_build_query($query);

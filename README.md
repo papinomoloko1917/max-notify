@@ -23,7 +23,8 @@ PHP-сервис для приема webhook-событий от камер Dahu
 - Composer
 - Nginx
 - Docker Compose
-- MySQL/phpMyAdmin в окружении проекта, но текущий webhook пока не использует БД
+- MySQL + PDO для клиентов, камер и связей между ними
+- Bootstrap 5.3.8 для личного кабинета `/profile`
 - Symfony VarDumper для разработки
 
 ## Структура
@@ -31,6 +32,8 @@ PHP-сервис для приема webhook-событий от камер Dahu
 ```text
 public/
   index.php                 HTTP entrypoint
+  assets/
+    vendor/bootstrap/       локальный Bootstrap
 
 src/
   App.php                   основной поток приложения
@@ -43,6 +46,8 @@ src/
     SnapshotResult.php
   Config/
     AppConfig.php           чтение настроек из env
+  Database/
+    Database.php            подключение к MySQL через PDO
   Event/
     DuplicateGuard.php      защита от дублей
     TimeWindowFilter.php    временной фильтр отправки
@@ -56,9 +61,24 @@ src/
   Webhook/
     EventMessageFormatter.php русские тексты событий для MAX
     WebhookRequest.php      разбор входящего запроса
+  Profile/
+    ProfileController.php   личный кабинет
+    ProfileRepository.php   клиенты, камеры и связи
+    ProfileSchema.php       создание таблиц
+
+resources/
+  views/profile/
+    index.php               кабинет
+    login.php               вход
 ```
 
 ## Установка
+
+Production-инструкция:
+
+```text
+docs/production-deploy.md
+```
 
 Скопировать шаблон настроек:
 
@@ -89,28 +109,44 @@ docker compose up -d php
 Основные переменные:
 
 ```env
-MAX_BOT_TOKEN=change_me
+MYSQL_HOST=127.0.0.1
+MYSQL_DATABASE=app_db
+MYSQL_USER=app_user
+MYSQL_PASSWORD=change_me
 
-WEBHOOK_SECRET=change_me
+PROFILE_USERNAME=admin
+PROFILE_PASSWORD_HASH='change_me'
+
 DUPLICATE_TTL_SECONDS=5
 NOTIFY_ALLOWED_FROM=
 NOTIFY_ALLOWED_TO=
 ```
 
-`WEBHOOK_SECRET` должен быть длинной случайной строкой. Его нужно добавить в URL webhook в камере.
+`MAX_BOT_TOKEN` и `WEBHOOK_SECRET` задаются в `/profile` в блоке “Настройки сервиса” и хранятся в MySQL.
+
+`PROFILE_PASSWORD_HASH` создается командой:
+
+```bash
+php -r 'echo password_hash("your-password", PASSWORD_DEFAULT), PHP_EOL;'
+```
+
+В `.env` bcrypt-хеш нужно брать в одинарные кавычки, потому что он содержит символы `$`.
 
 ## URL для Dahua
 
 Для первой камеры:
 
 ```text
-http://10.10.0.141/webhook?secret=WEBHOOK_SECRET&event=ivs&source=gate&rule=line_crossing
+http://10.10.0.141/w?s=SECRET&e=ivs&c=gate&r=line_crossing
 ```
 
 Где:
 
 - `10.10.0.141` - IP сервера с Docker/Nginx
-- `secret` - значение `WEBHOOK_SECRET` из `.env`
+- `s` - значение `Webhook secret` из `/profile`
+- `e` - тип события, например `ivs`
+- `c` - технический ключ камеры
+- `r` - правило, например `line_crossing`
 - `event` - тип события, например `ivs`
 - `source` - понятное имя источника, например `gate`, `yard`, `parking`
 - `rule` - правило, например `line_crossing`
@@ -250,53 +286,66 @@ storage/logs/webhook.log
 docs/getChatIdMax.md
 ```
 
+## Личный кабинет
+
+Кабинет доступен по адресу:
+
+```text
+http://10.10.0.141/profile
+```
+
+Отдельная страница со списком всех клиентов и камер:
+
+```text
+http://10.10.0.141/profile/lists
+```
+
+В нем можно:
+
+- добавлять клиентов MAX и их `chat_id`;
+- добавлять камеры Dahua/NVR;
+- редактировать клиентов и камеры;
+- привязывать одну камеру к одному или нескольким клиентам;
+- удалять клиентов и камеры;
+- вводить название камеры кириллицей;
+- автоматически формировать технический `source` из названия камеры;
+- автоматически формировать snapshot URL из IP/host камеры и номера канала;
+- автоматически формировать готовую webhook-команду для вставки в Dahua;
+- задавать доступы Dahua и разрешенные события через чекбоксы.
+
+Интерфейс использует локальный Bootstrap 5.3.8:
+
+```text
+public/assets/vendor/bootstrap/css/bootstrap.min.css
+public/assets/vendor/bootstrap/js/bootstrap.bundle.min.js
+public/assets/profile/profile.js
+```
+
+Данные хранятся в MySQL:
+
+```text
+clients
+cameras
+camera_clients
+```
+
 ## Несколько камер или NVR
 
-Текущая версия уже готовит модель под несколько источников через параметр `source`.
+Камеры и клиенты создаются в `/profile`, а webhook выбирает камеру через технический параметр `source`.
 
 Примеры:
 
 ```text
-/webhook?secret=...&event=ivs&source=gate&rule=line_crossing
-/webhook?secret=...&event=ivs&source=yard&rule=intrusion
-/webhook?secret=...&event=ivs&source=parking&rule=line_crossing
+/w?s=...&e=ivs&c=gate&r=line_crossing
+/w?s=...&e=ivs&c=yard&r=intrusion
+/w?s=...&e=ivs&c=parking&r=line_crossing
 ```
 
-Настройки нескольких камер задаются через `.env`:
+Обычно `source` руками вводить не нужно: кабинет формирует его из названия камеры и показывает готовую webhook-команду для Dahua. Если для камеры выбраны конкретные правила, команда формируется под каждое выбранное `rule`. Если правила не выбраны, кабинет показывает команды для всех известных типов событий.
 
-```env
-CAMERA_SOURCES=gate,yard
+Если для камеры в кабинете заданы разрешенные `rule`, все остальные события будут пропущены с ответом `OK rule skipped`.
 
-CAMERA_GATE_LABEL=Ворота
-CAMERA_GATE_URL=http://10.10.0.181/cgi-bin/snapshot.cgi?channel=1
-CAMERA_GATE_USER=server
-CAMERA_GATE_PASSWORD=change_me
-CAMERA_GATE_MAX_CHAT_IDS=111111,333333
-CAMERA_GATE_ALLOWED_RULES=vehicle_detection
-
-CAMERA_YARD_LABEL=Двор
-CAMERA_YARD_URL=http://10.10.0.182/cgi-bin/snapshot.cgi?channel=1
-CAMERA_YARD_USER=server
-CAMERA_YARD_PASSWORD=change_me
-CAMERA_YARD_MAX_CHAT_IDS=222222,444444
-CAMERA_YARD_ALLOWED_RULES=human_detection,vehicle_detection
-```
-
-`source` в URL лучше оставлять латиницей: `gate`, `yard`, `parking`. Русское название для сообщения в MAX задается отдельной переменной `CAMERA_<SOURCE>_LABEL`.
-
-`CAMERA_<SOURCE>_MAX_CHAT_IDS` позволяет отправлять события конкретной камеры сразу в несколько чатов MAX. Если она пустая, используется одиночный `CAMERA_<SOURCE>_MAX_CHAT_ID`.
-
-В production у каждой камеры должен быть задан свой `CAMERA_<SOURCE>_MAX_CHAT_ID` или `CAMERA_<SOURCE>_MAX_CHAT_IDS`. Общего fallback-получателя нет специально: это защищает от отправки событий не тому клиенту.
-
-`CAMERA_<SOURCE>_ALLOWED_RULES` позволяет отправлять только нужные типы событий. Если переменная пустая, разрешены все правила. Например, только транспорт:
-
-```env
-CAMERA_GATE_ALLOWED_RULES=vehicle_detection
-```
-
-Если придет другое правило, сервис запишет событие в лог и вернет `OK rule skipped`, но не будет получать snapshot и отправлять MAX.
-
-Если `source` не найден в `CAMERA_SOURCES`, событие пропускается с ответом `OK unknown source skipped`. Snapshot и MAX при этом не вызываются.
+Если `source` не найден в MySQL, событие пропускается с ответом `OK unknown source skipped`. Snapshot и MAX при этом не вызываются.
 
 После изменения `.env` нужно пересоздать PHP-контейнер:
 

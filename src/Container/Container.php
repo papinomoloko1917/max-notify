@@ -6,23 +6,29 @@ namespace App\Container;
 
 use App\Camera\DahuaCamera;
 use App\Camera\CameraRegistry;
-use App\Camera\CameraSource;
 use App\Config\AppConfig;
+use App\Database\Database;
 use App\Event\DuplicateGuard;
 use App\Event\TimeWindowFilter;
 use App\Logger\WebhookLogger;
 use App\Messenger\MaxMessenger;
+use App\Profile\ProfileController;
+use App\Profile\ProfileRepository;
+use App\Profile\ProfileSchema;
 use App\Webhook\EventMessageFormatter;
 
 final class Container
 {
     private ?AppConfig $config = null;
+    private ?\PDO $pdo = null;
     private ?WebhookLogger $logger = null;
     private ?DuplicateGuard $duplicateGuard = null;
     private ?TimeWindowFilter $timeWindowFilter = null;
     private ?CameraRegistry $cameraRegistry = null;
     private ?MaxMessenger $maxMessenger = null;
     private ?EventMessageFormatter $eventMessageFormatter = null;
+    private ?ProfileRepository $profileRepository = null;
+    private bool $profileMigrated = false;
 
     public function __construct(
         private string $appPath,
@@ -37,6 +43,42 @@ final class Container
     public function logger(): WebhookLogger
     {
         return $this->logger ??= new WebhookLogger($this->appPath . '/storage/logs/webhook.log');
+    }
+
+    public function pdo(): \PDO
+    {
+        if ($this->pdo !== null) {
+            return $this->pdo;
+        }
+
+        $config = $this->config();
+        $database = new Database(
+            $config->mysqlHost,
+            $config->mysqlDatabase,
+            $config->mysqlUser,
+            $config->mysqlPassword,
+        );
+
+        return $this->pdo = $database->pdo();
+    }
+
+    public function profileRepository(): ProfileRepository
+    {
+        $this->migrateProfile();
+
+        return $this->profileRepository ??= new ProfileRepository($this->pdo());
+    }
+
+    public function profileController(): ProfileController
+    {
+        $config = $this->config();
+
+        return new ProfileController(
+            $this->profileRepository(),
+            $config->profileUsername,
+            $config->profilePasswordHash,
+            $this->appPath . '/resources/views',
+        );
     }
 
     public function duplicateGuard(): DuplicateGuard
@@ -78,34 +120,28 @@ final class Container
             return $this->cameraRegistry;
         }
 
-        $sources = [];
-
-        foreach ($this->config()->cameraSources() as $name => $sourceConfig) {
-            $sources[$name] = new CameraSource(
-                $name,
-                $sourceConfig['label'],
-                $sourceConfig['url'],
-                $sourceConfig['user'],
-                $sourceConfig['password'],
-                $sourceConfig['max_chat_ids'],
-                $sourceConfig['allowed_rules'],
-            );
-        }
-
-        return $this->cameraRegistry = new CameraRegistry($sources);
+        return $this->cameraRegistry = new CameraRegistry($this->profileRepository()->cameraSources());
     }
 
     public function maxMessenger(): MaxMessenger
     {
-        $config = $this->config();
-
         return $this->maxMessenger ??= new MaxMessenger(
-            $config->maxToken,
+            $this->profileRepository()->settings()->maxBotToken,
         );
     }
 
     public function eventMessageFormatter(): EventMessageFormatter
     {
         return $this->eventMessageFormatter ??= new EventMessageFormatter();
+    }
+
+    private function migrateProfile(): void
+    {
+        if ($this->profileMigrated) {
+            return;
+        }
+
+        (new ProfileSchema($this->pdo()))->migrate();
+        $this->profileMigrated = true;
     }
 }

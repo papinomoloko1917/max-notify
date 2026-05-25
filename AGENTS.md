@@ -22,6 +22,8 @@
 
 Max Notify принимает webhook-события от IP-камеры Dahua или NVR, получает snapshot с камеры и отправляет фото в российский мессенджер MAX.
 
+Камеры, клиенты MAX и связи камер с клиентами хранятся в MySQL и управляются через `/profile`.
+
 Текущий рабочий поток:
 
 ```text
@@ -43,6 +45,8 @@ Dahua/NVR event
 ```text
 public/
   index.php
+  assets/
+    vendor/bootstrap/
 
 src/
   App.php
@@ -55,6 +59,8 @@ src/
     SnapshotResult.php
   Config/
     AppConfig.php
+  Database/
+    Database.php
   Event/
     DuplicateGuard.php
     TimeWindowFilter.php
@@ -68,10 +74,20 @@ src/
   Webhook/
     EventMessageFormatter.php
     WebhookRequest.php
+  Profile/
+    ProfileController.php
+    ProfileRepository.php
+    ProfileSchema.php
 
 docs/
   application-flow.md
   getChatIdMax.md
+  production-deploy.md
+
+resources/
+  views/profile/
+    index.php
+    login.php
 ```
 
 Главные роли:
@@ -84,11 +100,15 @@ docs/
 - `DuplicateGuard` — защита от дублей.
 - `TimeWindowFilter` — временной фильтр отправки уведомлений.
 - `CameraRegistry` — выбор настроек камеры по `source`.
-- `CameraSource` — настройки одного источника: имя, label, snapshot URL, доступы Dahua, список MAX chat_id.
+- `CameraSource` — настройки одного источника из MySQL: имя, label, snapshot URL, доступы Dahua, список MAX chat_id.
 - `DahuaCamera` — получение snapshot.
 - `MaxMessenger` — работа с MAX API.
 - `EventMessageFormatter` — короткое клиентское сообщение для MAX.
 - `WebhookLogger` — запись диагностического лога.
+- `ProfileController` — кабинет `/profile` на Bootstrap 5.3.8.
+- `ProfileRepository` — работа с таблицами `clients`, `cameras`, `camera_clients`.
+
+Представления `/profile` лежат в `resources/views/profile`. Bootstrap подключается локально из `public/assets/vendor/bootstrap`, CDN в production не используется. Локальная логика формы профиля лежит в `public/assets/profile/profile.js`: она автоматически формирует скрытый `source` из названия камеры, snapshot URL из IP/host + канала и помогает копировать готовую webhook-команду для Dahua. Серверная подстраховка этой логики находится в `ProfileController`.
 
 Сообщение для клиента в MAX должно быть коротким: событие, место, время. Технические детали `event`, `source`, `rule` оставлять в логах, а не перегружать ими сообщение.
 
@@ -105,37 +125,23 @@ docs/
 Основные переменные:
 
 ```env
-MAX_BOT_TOKEN=...
+MYSQL_DATABASE=app_db
+MYSQL_USER=app_user
+MYSQL_PASSWORD=...
 
-WEBHOOK_SECRET=...
+PROFILE_USERNAME=admin
+PROFILE_PASSWORD_HASH='...'
+
 DUPLICATE_TTL_SECONDS=5
 NOTIFY_ALLOWED_FROM=
 NOTIFY_ALLOWED_TO=
 ```
 
-Для нескольких камер:
+`MAX_BOT_TOKEN` и `WEBHOOK_SECRET` больше не задаются через `.env`. Они сохраняются в MySQL через `/profile` в блоке “Настройки сервиса”.
 
-```env
-CAMERA_SOURCES=gate,yard
+Камеры и получатели тоже не задаются через `.env`. Их нужно добавлять через `/profile`.
 
-CAMERA_GATE_LABEL=Ворота
-CAMERA_GATE_URL=http://camera-ip/cgi-bin/snapshot.cgi?channel=1
-CAMERA_GATE_USER=...
-CAMERA_GATE_PASSWORD=...
-CAMERA_GATE_MAX_CHAT_ID=
-CAMERA_GATE_MAX_CHAT_IDS=
-CAMERA_GATE_ALLOWED_RULES=
-```
-
-`CAMERA_<SOURCE>_MAX_CHAT_IDS` позволяет отправлять события конкретной камеры нескольким клиентам через запятую. Если значение пустое, используется одиночный `CAMERA_<SOURCE>_MAX_CHAT_ID`.
-
-Глобального `MAX_CHAT_ID` fallback больше нет. В production каждая камера должна явно указывать своих получателей, чтобы событие не ушло не тому клиенту.
-
-`CAMERA_<SOURCE>_ALLOWED_RULES` фильтрует события по `rule`. Если пусто, разрешены все правила. Пример только для транспорта:
-
-```env
-CAMERA_GATE_ALLOWED_RULES=vehicle_detection
-```
+`PROFILE_PASSWORD_HASH` должен быть результатом `password_hash()`. В `.env` bcrypt-хеш берется в одинарные кавычки, потому что содержит `$`.
 
 После изменения переменных окружения для PHP нужно пересоздать контейнер:
 
@@ -147,17 +153,19 @@ docker compose up -d php
 
 Камера должна вызывать URL с реальным `WEBHOOK_SECRET`, а не с `...`.
 
-Пример:
+Основной короткий формат для Dahua:
 
 ```text
-/webhook?secret=WEBHOOK_SECRET_VALUE&event=ivs&source=dahua&rule=line_crossing
+/w?s=WEBHOOK_SECRET_VALUE&e=ivs&c=dahua&r=line_crossing
 ```
 
 Если камера просит полный URL:
 
 ```text
-http://10.10.0.141/webhook?secret=WEBHOOK_SECRET_VALUE&event=ivs&source=dahua&rule=line_crossing
+http://10.10.0.141/w?s=WEBHOOK_SECRET_VALUE&e=ivs&c=dahua&r=line_crossing
 ```
+
+Старый длинный формат `/webhook?secret=...&event=...&source=...&rule=...` тоже поддерживается для совместимости.
 
 Важно:
 
@@ -178,8 +186,8 @@ source
 Примеры:
 
 ```text
-/webhook?secret=...&event=ivs&source=gate&rule=line_crossing
-/webhook?secret=...&event=ivs&source=yard&rule=intrusion
+/w?s=...&e=ivs&c=gate&r=line_crossing
+/w?s=...&e=ivs&c=yard&r=intrusion
 ```
 
 Для совместимости поддерживается старый параметр:
@@ -200,18 +208,7 @@ Duplicate key:
 event:source:rule
 ```
 
-`CameraRegistry` выбирает snapshot URL/логин/пароль и список MAX chat_id по `source`.
-
-У каждой камеры может быть свой получатель в MAX:
-
-```env
-CAMERA_GATE_MAX_CHAT_ID=111111
-CAMERA_GATE_MAX_CHAT_IDS=111111,333333
-CAMERA_YARD_MAX_CHAT_ID=222222
-CAMERA_YARD_MAX_CHAT_IDS=222222,444444
-```
-
-Если `CAMERA_<SOURCE>_MAX_CHAT_IDS` пустой, используется одиночный `CAMERA_<SOURCE>_MAX_CHAT_ID`. Если получатели камеры не заданы, камера не попадает в `CameraRegistry`.
+`CameraRegistry` выбирает snapshot URL/логин/пароль и список MAX chat_id по `source` из MySQL.
 
 `chat_id` клиента берется через MAX updates после того, как клиент написал боту. Подробная инструкция:
 
@@ -312,8 +309,8 @@ tail -f storage/logs/webhook.log
 - `404 /webhook_receiver.php` — старая настройка Dahua.
 - `is_duplicate: true` — событие отфильтровано как дубль.
 - `time_window.is_allowed: false` — событие пришло вне разрешенного времени.
-- `rule_filter.is_allowed: false` — событие отфильтровано по `CAMERA_<SOURCE>_ALLOWED_RULES`.
-- `camera_source.is_unknown: true` — `source` не найден в `CAMERA_SOURCES`, событие пропущено.
+- `rule_filter.is_allowed: false` — событие отфильтровано по `allowed_rules` камеры из MySQL.
+- `camera_source.is_unknown: true` — `source` не найден в MySQL, событие пропущено.
 - `snapshot.http_code != 200` — проблема получения snapshot с камеры.
 - `max_image_upload.has_token: false` — проблема upload изображения в MAX.
 - `max.text_http_code != 200` — проблема отправки сообщения в MAX.

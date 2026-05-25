@@ -12,10 +12,17 @@ final class CameraRegistry
     public function __construct(
         private array $sources,
     ) {
+        $normalizedSources = [];
+
+        foreach ($sources as $source => $cameraSource) {
+            $normalizedSources[strtolower((string) $source)] = $cameraSource;
+        }
+
+        $this->sources = $normalizedSources;
     }
 
     public function find(string $source): ?CameraSource
     {
-        return $this->sources[$source] ?? null;
+        return $this->sources[strtolower($source)] ?? null;
     }
 }
