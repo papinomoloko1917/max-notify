@@ -19,10 +19,10 @@ PHP-сервис для приема webhook-событий от камер Dahu
 
 ## Стек
 
-- PHP 8.2
+- PHP 8.2/8.3
 - Composer
 - Nginx
-- Docker Compose
+- Docker Compose для локальной разработки
 - MySQL + PDO для клиентов, камер и связей между ними
 - Bootstrap 5.3.8 для личного кабинета `/profile`
 - Symfony VarDumper для разработки
@@ -79,6 +79,10 @@ Production-инструкция:
 ```text
 docs/production-deploy.md
 ```
+
+Для production без Docker используется обычный Ubuntu Server: системный Nginx, PHP-FPM и MySQL. Приложение само читает файл `.env` из корня проекта, пакет `phpdotenv` не нужен.
+
+Локально можно использовать Docker Compose:
 
 Скопировать шаблон настроек:
 
@@ -147,17 +151,14 @@ http://10.10.0.141/w?s=SECRET&e=ivs&c=gate&r=line_crossing
 - `e` - тип события, например `ivs`
 - `c` - технический ключ камеры
 - `r` - правило, например `line_crossing`
-- `event` - тип события, например `ivs`
-- `source` - понятное имя источника, например `gate`, `yard`, `parking`
-- `rule` - правило, например `line_crossing`
 
-Для совместимости также поддерживается старый параметр `camera`:
+Для совместимости также поддерживается старый длинный формат:
 
 ```text
-/webhook?secret=...&event=ivs&camera=dahua&rule=line_crossing
+/webhook?secret=...&event=ivs&source=gate&rule=line_crossing
 ```
 
-Для нескольких камер лучше использовать `source`.
+Для нескольких камер в коротком формате используется параметр `c`.
 
 ## HTTP/HTTPS
 
@@ -187,7 +188,7 @@ OK
 Webhook с секретом:
 
 ```bash
-curl -i "http://10.10.0.141/webhook?secret=WEBHOOK_SECRET&event=ivs&source=gate&rule=line_crossing"
+curl -i "http://10.10.0.141/w?s=SECRET&e=ivs&c=gate&r=line_crossing"
 ```
 
 Webhook без секрета должен вернуть:
@@ -324,6 +325,7 @@ public/assets/profile/profile.js
 Данные хранятся в MySQL:
 
 ```text
+profile_settings
 clients
 cameras
 camera_clients
@@ -353,11 +355,17 @@ camera_clients
 docker compose up -d php
 ```
 
+На production без Docker после изменения `.env` достаточно:
+
+```bash
+sudo systemctl reload php8.3-fpm
+```
+
 Для NVR можно указать разные source с разными channel:
 
 ```text
-/webhook?secret=...&event=ivs&source=nvr_ch1&rule=line_crossing
-/webhook?secret=...&event=ivs&source=nvr_ch2&rule=line_crossing
+/w?s=...&e=ivs&c=nvr_ch1&r=line_crossing
+/w?s=...&e=ivs&c=nvr_ch2&r=line_crossing
 ```
 
 ## Production notes

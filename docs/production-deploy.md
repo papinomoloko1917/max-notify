@@ -88,18 +88,18 @@ sudo apt install -y composer
 
 ## 3. Создать директорию проекта
 
-Рекомендуемый путь:
+В этом проекте на сервере используется путь:
 
 ```bash
-sudo mkdir -p /var/www/max-notify
-sudo chown -R "$USER":www-data /var/www/max-notify
+mkdir -p /home/ninjamax1917/sites
+cd /home/ninjamax1917/sites
 ```
 
 Загрузить проект:
 
 ```bash
-git clone <repo-url> /var/www/max-notify
-cd /var/www/max-notify
+git clone https://github.com/papinomoloko1917/max-notify.git
+cd /home/ninjamax1917/sites/max-notify
 ```
 
 Если проект копируется вручную, важно перенести:
@@ -119,7 +119,7 @@ Docker-файлы на production-сервере не нужны.
 ## 4. Установить PHP-зависимости
 
 ```bash
-cd /var/www/max-notify
+cd /home/ninjamax1917/sites/max-notify
 composer install --no-dev --optimize-autoloader
 ```
 
@@ -182,7 +182,7 @@ FLUSH PRIVILEGES;
 ## 7. Настроить `.env`
 
 ```bash
-cd /sites/var/www/max-notify
+cd /home/ninjamax1917/sites/max-notify
 cp .env.example .env
 nano .env
 ```
@@ -206,6 +206,20 @@ NOTIFY_ALLOWED_TO=
 `MAX_BOT_TOKEN` и `WEBHOOK_SECRET` больше не нужно хранить в `.env`. Они задаются в `/profile` и сохраняются в MySQL.
 
 Приложение само читает файл `.env` при входе через `public/index.php`; отдельный пакет `phpdotenv` для production не нужен.
+
+Проверить, что `.env` заполнен без показа всех секретов:
+
+```bash
+grep -nE '^(MYSQL_HOST|MYSQL_DATABASE|MYSQL_USER|MYSQL_PASSWORD|PROFILE_USERNAME|PROFILE_PASSWORD_HASH)=' .env
+```
+
+Если в логе Nginx есть ошибка `getaddrinfo for mysql failed`, значит приложение видит `MYSQL_HOST=mysql`. Для установки без Docker нужно:
+
+```env
+MYSQL_HOST=127.0.0.1
+```
+
+и в MySQL должен быть создан пользователь `'max_notify'@'127.0.0.1'`.
 
 Создать хеш пароля для входа в `/profile`:
 
@@ -251,7 +265,7 @@ server {
     listen 8081;
     server_name _;
 
-    root /sites/var/www/max-notify/public;
+    root /home/ninjamax1917/sites/max-notify/public;
     index index.php;
 
     access_log /var/log/nginx/max-notify.access.log;
@@ -488,8 +502,8 @@ curl -s "https://platform-api.max.ru/updates?timeout=10&limit=10&types=message_c
 Лог приложения:
 
 ```bash
-tail -n 120 /sites/var/www/max-notify/storage/logs/webhook.log
-tail -f /sites/var/www/max-notify/storage/logs/webhook.log
+tail -n 120 /home/ninjamax1917/sites/max-notify/storage/logs/webhook.log
+tail -f /home/ninjamax1917/sites/max-notify/storage/logs/webhook.log
 ```
 
 Логи Nginx:
@@ -525,7 +539,7 @@ systemctl list-units 'php*-fpm.service'
 ## 17. Обновление проекта
 
 ```bash
-cd /sites/var/www/max-notify
+cd /home/ninjamax1917/sites/max-notify
 git pull
 composer install --no-dev --optimize-autoloader
 find src public resources -name '*.php' -print -exec php -l {} \;
@@ -539,6 +553,27 @@ sudo systemctl reload nginx
 
 ```bash
 curl -i http://127.0.0.1:8081/health
+```
+
+Если `git pull` пишет:
+
+```text
+cannot pull with rebase: You have unstaged changes
+```
+
+и в `git status --short` видны только изменения в `vendor/` после `composer install --no-dev`, можно очистить рабочее дерево и повторить:
+
+```bash
+git restore vendor storage/logs/.gitkeep storage/snapshots/.gitkeep
+git pull
+composer install --no-dev --optimize-autoloader
+```
+
+После обновления снова проверь:
+
+```bash
+php -l public/index.php
+curl -i http://127.0.0.1:8081/profile
 ```
 
 ## 18. Backup

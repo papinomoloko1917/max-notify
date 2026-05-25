@@ -254,7 +254,7 @@ src/Webhook/EventMessageFormatter.php
 
 ### source
 
-`source` - это имя источника события.
+`source` - это внутреннее имя источника события. В коротком URL оно приходит в параметре `c`.
 
 Сначала приложение ищет параметр:
 
@@ -262,13 +262,15 @@ src/Webhook/EventMessageFormatter.php
 source
 ```
 
-Если его нет, используется старый параметр:
+Если его нет, используются короткий или старый параметры:
 
 ```text
+c
+src
 camera
 ```
 
-Если нет ни `source`, ни `camera`, используется:
+Если нет ни одного параметра источника, используется:
 
 ```text
 default
@@ -279,8 +281,8 @@ default
 Примеры:
 
 ```text
-/webhook?source=gate
-/webhook?source=yard
+/w?c=gate
+/w?c=yard
 /webhook?camera=dahua
 ```
 
@@ -377,13 +379,13 @@ missingValues()
 
 ## Проверка WEBHOOK_SECRET
 
-Входящий webhook должен содержать параметр:
+Входящий webhook должен содержать secret. Основной короткий формат:
 
 ```text
-secret
+/w?s=...&e=ivs&c=gate&r=line_crossing
 ```
 
-Пример:
+Поддерживается и старый длинный формат:
 
 ```text
 /webhook?secret=...&event=ivs&source=gate&rule=line_crossing
@@ -500,10 +502,10 @@ src/Camera/CameraSource.php
 Пример:
 
 ```text
-/webhook?secret=...&event=ivs&source=gate&rule=line_crossing
+/w?s=...&e=ivs&c=gate&r=line_crossing
 ```
 
-`source=gate` будет искать настройки:
+`c=gate` будет искать настройки:
 
 ```text
 cameras.source = gate
@@ -750,7 +752,7 @@ OK
 ### 2. Неверный secret
 
 ```text
-GET /webhook?secret=wrong...
+GET /w?s=wrong...
 ```
 
 Результат:
@@ -764,7 +766,7 @@ GET /webhook?secret=wrong...
 ### 3. Дубль события
 
 ```text
-GET /webhook?secret=...&event=ivs&source=gate&rule=line_crossing
+GET /w?s=...&e=ivs&c=gate&r=line_crossing
 ```
 
 Если такое же событие уже было недавно:
@@ -794,7 +796,7 @@ Snapshot и MAX не вызываются.
 ### 6. Успешный сценарий
 
 ```text
-GET /webhook?secret=...&event=ivs&source=gate&rule=line_crossing
+GET /w?s=...&e=ivs&c=gate&r=line_crossing
 ```
 
 Результат:
@@ -827,7 +829,7 @@ $camera = new DahuaCamera($cameraSource->snapshotUrl, $cameraSource->user, $came
 Для NVR можно завести source на каждый канал через `/profile`:
 
 ```text
-/webhook?secret=...&event=ivs&source=nvr_ch3&rule=line_crossing
+/w?s=...&e=ivs&c=nvr_ch3&r=line_crossing
 ```
 
 И сохранить в MySQL:
