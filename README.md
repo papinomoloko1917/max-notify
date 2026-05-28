@@ -161,8 +161,8 @@ http://10.10.0.141/w?s=SECRET&e=ivs&c=gate&r=line_crossing
 Для нескольких камер в коротком формате используется параметр `c`.
 
 *** Пример вставки URL ***
-!(public/img/example1.png)
-!(public/img/example2.png)
+![Пример №1](public/img/example1.png)
+![Пример №2](public/img/example2.png)
 
 ## HTTP/HTTPS
 
