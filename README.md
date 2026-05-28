@@ -158,7 +158,7 @@ http://10.10.0.141/w?s=SECRET&e=ivs&c=gate&r=line_crossing
 /webhook?secret=...&event=ivs&source=gate&rule=line_crossing
 ```
 
-Для нескольких камер в коротком формате используется параметр `c`.
+Для нескольких камер в коротком формате используется параметр `"c"`.
 
 *** Пример вставки URL ***
 ![Пример №1](public/img/example1.png)
