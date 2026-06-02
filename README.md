@@ -167,7 +167,7 @@ http://10.10.0.141/w?s=SECRET&e=ivs&c=gate&r=line_crossing
 
 В `/profile` готовая команда формируется автоматически. В Dahua ее нужно вставлять в поле команды/пути webhook.
 
-| Настройка сервера | Команда webhook |
+| Интерфейс камеры | Интерфейс регистратора |
 | --- | --- |
 | ![Пример настройки сервера Dahua](public/img/example1.png) | ![Пример команды webhook Dahua](public/img/example2.png) |
 
