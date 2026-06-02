@@ -215,6 +215,26 @@ final class ProfileController
             throw new \RuntimeException('Не удалось сформировать snapshot URL. Заполните IP/host камеры или Snapshot URL вручную.');
         }
 
+        $notifyAllowedFrom = trim((string) ($_POST['notify_allowed_from'] ?? ''));
+        $notifyAllowedTo = trim((string) ($_POST['notify_allowed_to'] ?? ''));
+
+        if (($notifyAllowedFrom === '') !== ($notifyAllowedTo === '')) {
+            throw new \RuntimeException('Заполните оба поля времени камеры или оставьте оба пустыми.');
+        }
+
+        if (
+            ($notifyAllowedFrom !== '' && !$this->isTimeValue($notifyAllowedFrom))
+            || ($notifyAllowedTo !== '' && !$this->isTimeValue($notifyAllowedTo))
+        ) {
+            throw new \RuntimeException('Время камеры должно быть в формате HH:MM.');
+        }
+
+        $duplicateTtlSeconds = trim((string) ($_POST['duplicate_ttl_seconds'] ?? ''));
+
+        if ($duplicateTtlSeconds !== '' && (!\ctype_digit($duplicateTtlSeconds) || (int) $duplicateTtlSeconds < 1)) {
+            throw new \RuntimeException('Защита от дублей камеры должна быть положительным числом секунд.');
+        }
+
         return [
             'source' => $source,
             'label' => $label,
@@ -222,7 +242,21 @@ final class ProfileController
             'username' => trim((string) ($_POST['username'] ?? '')),
             'password' => trim((string) ($_POST['password'] ?? '')),
             'allowed_rules' => $this->rules($_POST['allowed_rules'] ?? []),
+            'notify_allowed_from' => $notifyAllowedFrom,
+            'notify_allowed_to' => $notifyAllowedTo,
+            'duplicate_ttl_seconds' => $duplicateTtlSeconds,
         ];
+    }
+
+    private function isTimeValue(string $time): bool
+    {
+        if (!\preg_match('/^\d{2}:\d{2}$/', $time)) {
+            return false;
+        }
+
+        [$hours, $minutes] = array_map('intval', explode(':', $time));
+
+        return $hours >= 0 && $hours <= 23 && $minutes >= 0 && $minutes <= 59;
     }
 
     private function source(string $source): string

@@ -12,9 +12,10 @@ final class DuplicateGuard
     ) {
     }
 
-    public function isDuplicate(string $key): bool
+    public function isDuplicate(string $key, ?int $ttlSeconds = null): bool
     {
         $now = time();
+        $ttlSeconds = $ttlSeconds !== null && $ttlSeconds > 0 ? $ttlSeconds : $this->ttlSeconds;
         $handle = fopen($this->stateFile, 'c+');
 
         if ($handle === false) {
@@ -29,10 +30,13 @@ final class DuplicateGuard
         $state = json_decode($json ?: '', true);
         $state = is_array($state) ? $state : [];
 
-        $lastSeenAt = $state[$key] ?? null;
-        $isDuplicate = is_int($lastSeenAt) && ($now - $lastSeenAt) < $this->ttlSeconds;
+        $lastSeenAt = $this->lastSeenAt($state[$key] ?? null);
+        $isDuplicate = $lastSeenAt !== null && ($now - $lastSeenAt) < $ttlSeconds;
 
-        $state[$key] = $now;
+        $state[$key] = [
+            'last_seen_at' => $now,
+            'ttl_seconds' => $ttlSeconds,
+        ];
         $freshState = $this->freshState($state, $now);
 
         ftruncate($handle, 0);
@@ -49,12 +53,40 @@ final class DuplicateGuard
     {
         $freshState = [];
 
-        foreach ($state as $key => $lastSeenAt) {
-            if (is_int($lastSeenAt) && ($now - $lastSeenAt) < $this->ttlSeconds) {
-                $freshState[$key] = $lastSeenAt;
+        foreach ($state as $key => $entry) {
+            $lastSeenAt = $this->lastSeenAt($entry);
+            $ttlSeconds = $this->ttlSeconds($entry);
+
+            if ($lastSeenAt !== null && ($now - $lastSeenAt) < $ttlSeconds) {
+                $freshState[$key] = [
+                    'last_seen_at' => $lastSeenAt,
+                    'ttl_seconds' => $ttlSeconds,
+                ];
             }
         }
 
         return $freshState;
+    }
+
+    private function lastSeenAt(mixed $entry): ?int
+    {
+        if (is_int($entry)) {
+            return $entry;
+        }
+
+        if (is_array($entry) && isset($entry['last_seen_at']) && is_int($entry['last_seen_at'])) {
+            return $entry['last_seen_at'];
+        }
+
+        return null;
+    }
+
+    private function ttlSeconds(mixed $entry): int
+    {
+        if (is_array($entry) && isset($entry['ttl_seconds']) && is_int($entry['ttl_seconds']) && $entry['ttl_seconds'] > 0) {
+            return $entry['ttl_seconds'];
+        }
+
+        return $this->ttlSeconds;
     }
 }

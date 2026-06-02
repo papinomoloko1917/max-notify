@@ -185,6 +185,20 @@
                             </div>
                             <div class="form-text">Если ничего не выбрать, будут разрешены все события.</div>
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="camera-time-from">Отправлять с</label>
+                            <input class="form-control" id="camera-time-from" name="notify_allowed_from" type="time">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="camera-time-to">Отправлять до</label>
+                            <input class="form-control" id="camera-time-to" name="notify_allowed_to" type="time">
+                            <div class="form-text">Если оба поля пустые, камера отправляет уведомления без ограничения по времени.</div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label" for="camera-duplicate-ttl">Защита от дублей, сек</label>
+                            <input class="form-control" id="camera-duplicate-ttl" name="duplicate_ttl_seconds" type="number" min="1" placeholder="Глобальное значение из .env">
+                            <div class="form-text">Оставьте пустым, чтобы использовать общий `DUPLICATE_TTL_SECONDS`.</div>
+                        </div>
                         <div class="col-12">
                             <label class="form-label" for="camera-clients">Клиенты</label>
                             <select class="form-select" id="camera-clients" name="client_ids[]" multiple required size="4">
@@ -205,6 +219,8 @@
                             <th>Название</th>
                             <th>Клиенты</th>
                             <th>Rules</th>
+                            <th>Время</th>
+                            <th>Дубли</th>
                             <th>Webhook для Dahua</th>
                             <th class="text-end">Действия</th>
                         </tr>
@@ -215,6 +231,20 @@
                                 <td><?= $this->e($camera['label']) ?></td>
                                 <td><?= $this->e($camera['client_names'] ?? '') ?></td>
                                 <td><code><?= $this->e($camera['allowed_rules'] ?? '') ?></code></td>
+                                <td>
+                                    <?php if (($camera['notify_allowed_from'] ?? '') !== '' || ($camera['notify_allowed_to'] ?? '') !== ''): ?>
+                                        <code><?= $this->e($camera['notify_allowed_from'] ?? '') ?>-<?= $this->e($camera['notify_allowed_to'] ?? '') ?></code>
+                                    <?php else: ?>
+                                        <span class="text-secondary">Всегда</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if (($camera['duplicate_ttl_seconds'] ?? '') !== ''): ?>
+                                        <code><?= (int) $camera['duplicate_ttl_seconds'] ?> сек</code>
+                                    <?php else: ?>
+                                        <span class="text-secondary">Общее</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td style="min-width: 360px;">
                                     <div class="vstack gap-2">
                                         <?php foreach ($this->webhookCommands($camera) as $command): ?>
@@ -355,6 +385,20 @@
                                     <?php endforeach; ?>
                                 </div>
                                 <div class="form-text">Если ничего не выбрать, будут разрешены все события.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="edit-camera-time-from-<?= (int) $camera['id'] ?>">Отправлять с</label>
+                                <input class="form-control" id="edit-camera-time-from-<?= (int) $camera['id'] ?>" name="notify_allowed_from" type="time" value="<?= $this->e($camera['notify_allowed_from'] ?? '') ?>">
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label" for="edit-camera-time-to-<?= (int) $camera['id'] ?>">Отправлять до</label>
+                                <input class="form-control" id="edit-camera-time-to-<?= (int) $camera['id'] ?>" name="notify_allowed_to" type="time" value="<?= $this->e($camera['notify_allowed_to'] ?? '') ?>">
+                                <div class="form-text">Например 22:00-07:00 для ночного окна.</div>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label" for="edit-camera-duplicate-ttl-<?= (int) $camera['id'] ?>">Защита от дублей, сек</label>
+                                <input class="form-control" id="edit-camera-duplicate-ttl-<?= (int) $camera['id'] ?>" name="duplicate_ttl_seconds" type="number" min="1" value="<?= $this->e((string) ($camera['duplicate_ttl_seconds'] ?? '')) ?>" placeholder="Глобальное значение из .env">
+                                <div class="form-text">Оставьте пустым, чтобы использовать общий `DUPLICATE_TTL_SECONDS`.</div>
                             </div>
                             <div class="col-12">
                                 <label class="form-label" for="edit-camera-clients-<?= (int) $camera['id'] ?>">Клиенты</label>

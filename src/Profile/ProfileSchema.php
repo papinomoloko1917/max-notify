@@ -42,10 +42,17 @@ final class ProfileSchema
                 username VARCHAR(120) NOT NULL,
                 password VARCHAR(255) NOT NULL,
                 allowed_rules VARCHAR(255) DEFAULT NULL,
+                notify_allowed_from VARCHAR(5) DEFAULT NULL,
+                notify_allowed_to VARCHAR(5) DEFAULT NULL,
+                duplicate_ttl_seconds INT UNSIGNED DEFAULT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE KEY uniq_cameras_source (source)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
+
+        $this->addColumnIfMissing('cameras', 'notify_allowed_from', 'VARCHAR(5) DEFAULT NULL');
+        $this->addColumnIfMissing('cameras', 'notify_allowed_to', 'VARCHAR(5) DEFAULT NULL');
+        $this->addColumnIfMissing('cameras', 'duplicate_ttl_seconds', 'INT UNSIGNED DEFAULT NULL');
 
         $this->pdo->exec(
             'CREATE TABLE IF NOT EXISTS camera_clients (
@@ -60,5 +67,26 @@ final class ProfileSchema
                     ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'
         );
+    }
+
+    private function addColumnIfMissing(string $table, string $column, string $definition): void
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*)
+             FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = :table
+               AND COLUMN_NAME = :column'
+        );
+        $statement->execute([
+            'table' => $table,
+            'column' => $column,
+        ]);
+
+        if ((int) $statement->fetchColumn() > 0) {
+            return;
+        }
+
+        $this->pdo->exec(sprintf('ALTER TABLE `%s` ADD COLUMN `%s` %s', $table, $column, $definition));
     }
 }

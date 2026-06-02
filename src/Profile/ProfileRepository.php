@@ -57,6 +57,7 @@ final class ProfileRepository
     {
         return $this->pdo->query(
             'SELECT c.id, c.source, c.label, c.snapshot_url, c.username, c.allowed_rules,
+                    c.notify_allowed_from, c.notify_allowed_to, c.duplicate_ttl_seconds,
                     GROUP_CONCAT(cl.name ORDER BY cl.name SEPARATOR ", ") AS client_names,
                     GROUP_CONCAT(cl.max_chat_id ORDER BY cl.name SEPARATOR ",") AS max_chat_ids,
                     GROUP_CONCAT(cl.id ORDER BY cl.id SEPARATOR ",") AS client_ids
@@ -101,8 +102,28 @@ final class ProfileRepository
         $this->pdo->beginTransaction();
 
         $statement = $this->pdo->prepare(
-            'INSERT INTO cameras (source, label, snapshot_url, username, password, allowed_rules)
-             VALUES (:source, :label, :snapshot_url, :username, :password, :allowed_rules)'
+            'INSERT INTO cameras (
+                source,
+                label,
+                snapshot_url,
+                username,
+                password,
+                allowed_rules,
+                notify_allowed_from,
+                notify_allowed_to,
+                duplicate_ttl_seconds
+             )
+             VALUES (
+                :source,
+                :label,
+                :snapshot_url,
+                :username,
+                :password,
+                :allowed_rules,
+                :notify_allowed_from,
+                :notify_allowed_to,
+                :duplicate_ttl_seconds
+             )'
         );
 
         $statement->execute([
@@ -112,6 +133,9 @@ final class ProfileRepository
             'username' => $data['username'],
             'password' => $data['password'],
             'allowed_rules' => $data['allowed_rules'] ?: null,
+            'notify_allowed_from' => $data['notify_allowed_from'] ?: null,
+            'notify_allowed_to' => $data['notify_allowed_to'] ?: null,
+            'duplicate_ttl_seconds' => $data['duplicate_ttl_seconds'] ?: null,
         ]);
 
         $cameraId = (int) $this->pdo->lastInsertId();
@@ -143,6 +167,9 @@ final class ProfileRepository
             'snapshot_url = :snapshot_url',
             'username = :username',
             'allowed_rules = :allowed_rules',
+            'notify_allowed_from = :notify_allowed_from',
+            'notify_allowed_to = :notify_allowed_to',
+            'duplicate_ttl_seconds = :duplicate_ttl_seconds',
         ];
 
         $params = [
@@ -152,6 +179,9 @@ final class ProfileRepository
             'snapshot_url' => $data['snapshot_url'],
             'username' => $data['username'],
             'allowed_rules' => $data['allowed_rules'] ?: null,
+            'notify_allowed_from' => $data['notify_allowed_from'] ?: null,
+            'notify_allowed_to' => $data['notify_allowed_to'] ?: null,
+            'duplicate_ttl_seconds' => $data['duplicate_ttl_seconds'] ?: null,
         ];
 
         if (($data['password'] ?? '') !== '') {
@@ -183,6 +213,7 @@ final class ProfileRepository
     {
         $rows = $this->pdo->query(
             'SELECT c.source, c.label, c.snapshot_url, c.username, c.password, c.allowed_rules,
+                    c.notify_allowed_from, c.notify_allowed_to, c.duplicate_ttl_seconds,
                     GROUP_CONCAT(cl.max_chat_id ORDER BY cl.id SEPARATOR ",") AS max_chat_ids
              FROM cameras c
              INNER JOIN camera_clients cc ON cc.camera_id = c.id
@@ -207,6 +238,9 @@ final class ProfileRepository
                 $row['password'],
                 $chatIds,
                 $this->csv($row['allowed_rules'] ?? ''),
+                $row['notify_allowed_from'] ?? '',
+                $row['notify_allowed_to'] ?? '',
+                $this->nullablePositiveInt($row['duplicate_ttl_seconds'] ?? null),
             );
         }
 
@@ -226,5 +260,16 @@ final class ProfileRepository
         $value = \getenv($name);
 
         return $value === false ? '' : $value;
+    }
+
+    private function nullablePositiveInt(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $intValue = (int) $value;
+
+        return $intValue > 0 ? $intValue : null;
     }
 }

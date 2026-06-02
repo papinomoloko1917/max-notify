@@ -110,6 +110,8 @@
                             <th>Источник</th>
                             <th>Клиенты</th>
                             <th>События</th>
+                            <th>Время</th>
+                            <th>Дубли</th>
                             <th>Snapshot</th>
                         </tr>
                         </thead>
@@ -120,12 +122,26 @@
                                 <td><code><?= $this->e($camera['source']) ?></code></td>
                                 <td><?= $this->e($camera['client_names'] ?? '') ?></td>
                                 <td><code><?= $this->e($camera['allowed_rules'] ?: 'Все') ?></code></td>
+                                <td>
+                                    <?php if (($camera['notify_allowed_from'] ?? '') !== '' || ($camera['notify_allowed_to'] ?? '') !== ''): ?>
+                                        <code><?= $this->e($camera['notify_allowed_from'] ?? '') ?>-<?= $this->e($camera['notify_allowed_to'] ?? '') ?></code>
+                                    <?php else: ?>
+                                        <span class="text-secondary">Всегда</span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if (($camera['duplicate_ttl_seconds'] ?? '') !== ''): ?>
+                                        <code><?= (int) $camera['duplicate_ttl_seconds'] ?> сек</code>
+                                    <?php else: ?>
+                                        <span class="text-secondary">Общее</span>
+                                    <?php endif; ?>
+                                </td>
                                 <td class="small"><code><?= $this->e($camera['snapshot_url']) ?></code></td>
                             </tr>
                         <?php endforeach; ?>
                         <?php if ($cameras === []): ?>
                             <tr>
-                                <td class="text-secondary" colspan="5">Камеры еще не добавлены.</td>
+                                <td class="text-secondary" colspan="7">Камеры еще не добавлены.</td>
                             </tr>
                         <?php endif; ?>
                         </tbody>

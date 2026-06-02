@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App;
 
 use App\Container\Container;
+use App\Event\TimeWindowFilter;
 use App\Webhook\WebhookRequest;
 use DateTimeImmutable;
 
@@ -86,22 +87,6 @@ final class App
             return;
         }
 
-        $isDuplicate = $this->container->duplicateGuard()->isDuplicate($request->duplicateKey());
-
-        $event['duplicate'] = [
-            'key' => $request->duplicateKey(),
-            'is_duplicate' => $isDuplicate,
-            'ttl_seconds' => $config->duplicateTtlSeconds,
-        ];
-
-        if ($isDuplicate) {
-            $logger->write($event);
-
-            echo 'OK duplicate skipped';
-
-            return;
-        }
-
         $now = new DateTimeImmutable();
         $timeWindowFilter = $this->container->timeWindowFilter();
         $event['time_window'] = $timeWindowFilter->toLogContext($now);
@@ -138,7 +123,28 @@ final class App
             'is_unknown' => false,
             'chat_ids_count' => count($cameraSource->maxChatIds),
             'allowed_rules' => $cameraSource->allowedRules,
+            'notify_allowed_from' => $cameraSource->notifyAllowedFrom,
+            'notify_allowed_to' => $cameraSource->notifyAllowedTo,
+            'duplicate_ttl_seconds' => $cameraSource->duplicateTtlSeconds,
         ];
+
+        $duplicateTtlSeconds = $cameraSource->duplicateTtlSeconds ?? $config->duplicateTtlSeconds;
+        $isDuplicate = $this->container->duplicateGuard()->isDuplicate($request->duplicateKey(), $duplicateTtlSeconds);
+
+        $event['duplicate'] = [
+            'key' => $request->duplicateKey(),
+            'is_duplicate' => $isDuplicate,
+            'ttl_seconds' => $duplicateTtlSeconds,
+            'uses_camera_ttl' => $cameraSource->duplicateTtlSeconds !== null,
+        ];
+
+        if ($isDuplicate) {
+            $logger->write($event);
+
+            echo 'OK duplicate skipped';
+
+            return;
+        }
 
         $event['rule_filter'] = [
             'enabled' => $cameraSource->allowedRules !== [],
@@ -151,6 +157,20 @@ final class App
             $logger->write($event);
 
             echo 'OK rule skipped';
+
+            return;
+        }
+
+        $cameraTimeWindowFilter = new TimeWindowFilter(
+            $cameraSource->notifyAllowedFrom,
+            $cameraSource->notifyAllowedTo,
+        );
+        $event['camera_time_window'] = $cameraTimeWindowFilter->toLogContext($now);
+
+        if (!$cameraTimeWindowFilter->isAllowed($now)) {
+            $logger->write($event);
+
+            echo 'OK camera time window skipped';
 
             return;
         }

@@ -14,6 +14,9 @@ final class CameraSource
         public readonly string $password,
         public readonly array $maxChatIds,
         public readonly array $allowedRules = [],
+        public readonly string $notifyAllowedFrom = '',
+        public readonly string $notifyAllowedTo = '',
+        public readonly ?int $duplicateTtlSeconds = null,
     ) {
     }
 
